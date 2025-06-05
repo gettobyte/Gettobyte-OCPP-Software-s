@@ -91,6 +91,7 @@ void loop() {
     if (!tx || !tx->isActive()) {
 
       // No active transaction — start a new one
+      
       Serial.printf("[main] Begin Transaction with idTag %s\n", idTag.c_str());
 
 

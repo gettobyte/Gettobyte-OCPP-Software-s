@@ -12,8 +12,13 @@
 #define RST_PIN 22   // RST
 #define LED_PIN 2    // Optional: LED toggled when charging
 
+#define RXD2 16
+#define TXD2 17
+
 MFRC522 rfid(SS_PIN, RST_PIN);
 DHT dht(DHTPIN, DHTTYPE);
+
+float xyz;
 
 // Replace with your card's UID
 byte validUID[4] = {0x21, 0xF5, 0xA2, 0x26};
@@ -21,12 +26,9 @@ byte validUID[4] = {0x21, 0xF5, 0xA2, 0x26};
 const char* ssid = "Nothing";
 const char* password = "123456789";
 const char* ocppServer = "wss://ocppserver.myekigai.com"; //MAIN ONE
-//const char* ocppServer = "ws://localhost:9000/ESP32CP";
-//const char* ocppServer = "ws://192.168.143.209:9000/ESP32CP";
 
-//const char* ocppServer = "wss://ocppserverlogsclient.myekigai.com/";
 
-String inputData = "";
+
 String idTag = "0123456789ABCD"; // This will be used for OCPP transaction
 unsigned long long  currentTransactionId = 0;
 
@@ -38,6 +40,7 @@ const unsigned long dhtInterval = 10000; // 10 seconds
 
 void setup() {
   Serial.begin(115200);
+  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);
   dht.begin();
 
   SPI.begin(18, 19, 23);  // SCK, MISO, MOSI for ESP32
@@ -45,6 +48,7 @@ void setup() {
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
+
 
   // Connect to WiFi
   WiFi.begin(ssid, password);
@@ -62,9 +66,10 @@ void setup() {
 }
 
 void loop() {
+
+
   mocpp_loop(); // MicroOcpp background tasks
 
-  //setMeterValueSampleInterval(10);
 
 
   if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
@@ -79,9 +84,19 @@ void loop() {
   }
   Serial.println();
 
-    setPowerMeterInput([]() {
-     return 200.0f;  // Active power in Watts
-     }, 1);
+    calculateCurrentVoltage();
+
+    delay(2000);
+
+  // Energy reading in Wh
+  setEnergyMeterInput([]() {
+   
+    return calculateCurrentVoltage () ; 
+  }, 1);
+
+
+
+
 
   if (isValidCard(rfid.uid.uidByte)) {
     Serial.println("Authorized card detected");
@@ -91,7 +106,6 @@ void loop() {
     if (!tx || !tx->isActive()) {
 
       // No active transaction — start a new one
-      
       Serial.printf("[main] Begin Transaction with idTag %s\n", idTag.c_str());
 
 
@@ -100,14 +114,8 @@ void loop() {
 
       if (ret) {
         Serial.println(F("[main] Transaction initiated. Waiting for plug + auth"));
-          // Add Meter Inputs once when transaction starts
-        //  addMeterValueInput([]() {
-        //   return 5.0f;
-        //    }, "Voltage", "V", "Outlet", nullptr, 1);
 
-        //   addMeterValueInput([]() {
-        //        return 10.0f;
-        //     }, "Current.Import", "A", "Outlet", nullptr, 1);
+
 
         digitalWrite(LED_PIN, HIGH); // EV plug energized
         DHTRead();
@@ -141,23 +149,10 @@ void loop() {
   delay(1500); // Debounce delay
   rfid.PICC_HaltA();
   rfid.PCD_StopCrypto1();
+
+
+  
 }
- 
-
-  // // Read serial input and send to server if charging
-  // while (Serial.available()) {
-  //   char c = Serial.read();
-  //   if (c == '\n') {
-  //     if (ocppPermitsCharge()) {
-  //       sendSerialDataToServer(inputData);
-  //     }
-  //     inputData = "";
-  //   } else {
-  //     inputData += c;
-  //   }
-  // }
-
-
 
 
 
@@ -187,11 +182,11 @@ void DHTRead() {
   Serial.print(humidity);
   Serial.println(" %");
 
-  sendDHTDataToServer(temperature, humidity);
+  sendDataToServer(temperature, humidity);
 }
 
 // Send DHT data to OCPP server
-void sendDHTDataToServer(float temperature, float humidity) {
+void sendDataToServer(float temperature, float humidity) {
   sendRequest("DataTransfer",
     [temperature, humidity]() {
       auto doc = std::unique_ptr<DynamicJsonDocument>(new DynamicJsonDocument(256));
@@ -210,13 +205,13 @@ void sendDHTDataToServer(float temperature, float humidity) {
 }
 
 // Send custom serial data to OCPP server
-void sendSerialDataToServer(String payload) {
+void sendSerialDataToServer(String energy) {
   sendRequest("DataTransfer",
-    [payload]() {
+    [energy]() {
       auto doc = std::unique_ptr<DynamicJsonDocument>(new DynamicJsonDocument(256));
       JsonObject json = doc->to<JsonObject>();
       json["vendorId"] = "CustomClient";
-      json["data"] = payload;
+      json["data"] = energy;
       return doc;
     },
     [](JsonObject response) {
@@ -226,6 +221,33 @@ void sendSerialDataToServer(String payload) {
     }
   );
 
+}
+
+void sendMetervalues() {
+  if (!isValidCard(rfid.uid.uidByte)) {
+    return;
+  }
+
+  float energy = calculateCurrentVoltage();
+  sendSerialDataToServer(String(energy));
+}
+
+
+float calculateCurrentVoltage() {
+  String buffer = "";
+
+  while (Serial2.available()) {
+    char incomingByte = Serial2.read();
+  //  Serial.print(incomingByte); // Optional: Print to Serial Monitor
+    buffer += incomingByte;
+    delay(2); // Small delay to ensure the complete message is received
+  }
+
+ Serial.println(buffer);
+ delay(1000);
+  xyz = buffer.toFloat(); // Convert the full string to float and return
+
+  return xyz;
 }
 
 

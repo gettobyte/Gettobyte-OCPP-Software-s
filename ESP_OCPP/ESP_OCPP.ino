@@ -18,7 +18,7 @@
 MFRC522 rfid(SS_PIN, RST_PIN);
 DHT dht(DHTPIN, DHTTYPE);
 
-float xyz;
+float Power;
 
 // Replace with your card's UID
 byte validUID[4] = {0x21, 0xF5, 0xA2, 0x26};
@@ -245,9 +245,9 @@ float calculateCurrentVoltage() {
 
  Serial.println(buffer);
  delay(1000);
-  xyz = buffer.toFloat(); // Convert the full string to float and return
+  Power = buffer.toFloat(); // Convert the full string to float and return
 
-  return xyz;
+  return Power;
 }
 
 
